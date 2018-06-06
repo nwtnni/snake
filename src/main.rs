@@ -37,6 +37,7 @@ enum Fruit {
     Slow,
 }
 
+#[derive(Debug)]
 enum Ending {
     OutOfBounds,
     SelfCollision,
@@ -129,6 +130,24 @@ impl fmt::Display for Snake {
     }
 }
 
+impl fmt::Display for Game {
+    fn fmt(&self, fmt: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+
+        write!(fmt, "{}", clear::All);
+
+        for ((x, y), fruit) in &self.fruits {
+            write!(
+                fmt,
+                "{goto}{fruit}",
+                goto = cursor::Goto(*x as u16, *y as u16),
+                fruit = fruit,
+            );
+        }
+
+        write!(fmt, "{}", self.snake)
+    }
+}
+
 impl Snake {
     fn new(max_x: u16, max_y: u16) -> Self {
         Snake(vec![
@@ -180,13 +199,14 @@ fn main() {
         .unwrap();
 
     let (x, y) = termion::terminal_size().unwrap();
+    write!(stdout, "{}", cursor::Hide);
 
     let mut game = Game {
         bounds: (x as i32, y as i32),
-        snake: Snake::new(x, y), 
+        snake: Snake::new(x, y),
         dir: Dir::N,
         fruits: HashMap::default(),
-        delay: Duration::from_millis(250),         
+        delay: Duration::from_millis(50),
         points: 0,
     };
 
@@ -194,21 +214,25 @@ fn main() {
 
         thread::sleep(game.delay);
         let maybe = stdin.next();
-        if let None = maybe { continue }
 
-        // Drain event queue completely
-        let mut event = maybe.unwrap(); 
-        while let Some(next) = stdin.next() { event = next; }
+        // Handle user input
+        if maybe.is_some() {
 
-        match event.unwrap() {
-        | Key::Char('w') | Key::Up    => game.dir = Dir::N,
-        | Key::Char('a') | Key::Left  => game.dir = Dir::W,
-        | Key::Char('s') | Key::Down  => game.dir = Dir::S,
-        | Key::Char('d') | Key::Right => game.dir = Dir::E,
-        | Key::Char('q') | Key::Esc   => break Ending::Quit,
-        | _                           => (),
-        };
+            // Drain event queue completely if there's more than one event
+            let mut event = maybe.unwrap();
+            while let Some(next) = stdin.next() { event = next; }
 
+            match event.unwrap() {
+            | Key::Char('w') | Key::Up    => game.dir = Dir::N,
+            | Key::Char('a') | Key::Left  => game.dir = Dir::W,
+            | Key::Char('s') | Key::Down  => game.dir = Dir::S,
+            | Key::Char('d') | Key::Right => game.dir = Dir::E,
+            | Key::Char('q') | Key::Esc   => break Ending::Quit,
+            | _                           => (),
+            };
+        }
+
+        // Move the snake!
         match game.snake.step(&mut game.fruits, game.bounds, game.dir) {
         | Err(err)                => break err,
         | Ok(Some(Fruit::Death))  => break Ending::FruitDeath,
@@ -221,4 +245,7 @@ fn main() {
         write!(stdout, "{}", game);
         stdout.flush().unwrap();
     };
+
+    write!(stdout, "{}{}{}", cursor::Goto(1, 1), clear::All, cursor::Show);
+    println!("{:?}\r", ending);
 }
