@@ -2,8 +2,13 @@ extern crate termion;
 
 use std::fmt;
 use std::collections::HashMap;
+use std::io::{Write, stdout, stdin};
+use std::time::{Instant, Duration};
 
 use termion::{color, cursor, clear};
+use termion::event::Key;
+use termion::input::TermRead;
+use termion::raw::IntoRawMode;
 
 #[derive(Copy, Clone)]
 enum Dir {
@@ -13,20 +18,16 @@ enum Dir {
     W,
 }
 
+type Pos = (i32, i32);
+
 struct Segment {
     dir: Dir,
-    pos: (i32, i32),
+    pos: Pos,
 }
 
 struct Snake {
-    bounds: (i32, i32),
+    bounds: Pos,
     body: Vec<Segment>,
-}
-
-enum GameError {
-    OutOfBounds,
-    SelfCollision,
-    FruitDeath,
 }
 
 #[derive(Copy, Clone)]
@@ -37,10 +38,41 @@ enum Fruit {
     Slow,
 }
 
-impl fmt::Display for Snake {
+enum GameError {
+    OutOfBounds,
+    SelfCollision,
+    FruitDeath,
+}
 
+struct Game {
+    bounds: Pos, 
+    previous: Instant, 
+    delay: Duration,
+    snake: Snake,
+    fruits: HashMap<Pos, Fruit>,
+}
+
+impl fmt::Display for Fruit {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        let (display, color) = match self {
+        | Fruit::Growth => ('🍏', &color::Green    as &color::Color),
+        | Fruit::Death  => ('🍉', &color::Red      as &color::Color),
+        | Fruit::Speed  => ('🍒', &color::LightRed as &color::Color),
+        | Fruit::Slow   => ('🍍', &color::Blue     as &color::Color),
+        };
+        
+        write!(
+            fmt,
+            "{color}{display}{reset}",
+            color = color::Fg(color),
+            display = display,
+            reset = color::Fg(color::Reset),
+        )
+    }
+}
 
+impl fmt::Display for Snake {
+    fn fmt(&self, fmt: &mut fmt::Formatter) -> Result<(), fmt::Error> {
         let segments = &self.body;
         let first = segments.first().unwrap();
         let (x, y) = first.pos;
@@ -52,8 +84,9 @@ impl fmt::Display for Snake {
 
         write!(
             fmt,
-            "{goto}{display}",
+            "{goto}{color}{display}",
             goto = cursor::Goto(x as u16, y as u16),
+            color = color::Fg(color::White),
             display = display,
         );
 
@@ -79,7 +112,7 @@ impl fmt::Display for Snake {
             );
         }
 
-        Ok(())
+        write!(fmt, "{}", color::Fg(color::Reset))
     }
 }
 
@@ -109,6 +142,9 @@ impl Snake {
             return Err(GameError::SelfCollision)
         }
 
+        // Update body with new segment
+        segments.insert(0, Segment { dir, pos: (x, y) });
+
         // Fruit check
         match fruit {
         | Some(Fruit::Death) => Err(GameError::FruitDeath),
@@ -119,5 +155,14 @@ impl Snake {
 }
 
 fn main() {
-    println!("Hello, world!");
+    
+    let stdin = stdin();
+    let stdout = stdout();
+    let mut handle = stdout.lock()
+        .into_raw_mode()
+        .unwrap();
+    
+    
+
+
 }
