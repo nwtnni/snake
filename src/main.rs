@@ -1,16 +1,18 @@
+extern crate rand;
 extern crate termion;
 
 use std::fmt;
 use std::collections::HashMap;
-use std::io::{Write, stdout, stdin};
-use std::time::{Instant, Duration};
+use std::io::{Write, stdout};
+use std::time::Duration;
 use std::thread;
 
+use rand::Rng;
 use termion::{color, cursor, clear};
 use termion::event::Key;
 use termion::input::TermRead;
 use termion::raw::IntoRawMode;
-use termion::{AsyncReader, async_stdin};
+use termion::async_stdin;
 
 #[derive(Copy, Clone)]
 enum Dir {
@@ -70,7 +72,7 @@ impl fmt::Display for Fruit {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> Result<(), fmt::Error> {
         let (display, color) = match self {
         | Fruit::Growth => ('🍏', &color::Green    as &color::Color),
-        | Fruit::Death  => ('🍉', &color::Red      as &color::Color),
+        | Fruit::Death  => ('💀', &color::Red      as &color::Color),
         | Fruit::Speed  => ('🍒', &color::LightRed as &color::Color),
         | Fruit::Slow   => ('🍍', &color::Blue     as &color::Color),
         };
@@ -109,10 +111,10 @@ impl fmt::Display for Snake {
             let (x, y) = tail.pos;
 
             let display = match (head.dir, tail.dir) {
-            | (Dir::N, Dir::E)                    => '╯',
-            | (Dir::N, Dir::W)                    => '╰',
-            | (Dir::S, Dir::E)                    => '╮',
-            | (Dir::S, Dir::W)                    => '╭',
+            | (Dir::N, Dir::E) | (Dir::W, Dir::S) => '╯',
+            | (Dir::N, Dir::W) | (Dir::E, Dir::S) => '╰',
+            | (Dir::S, Dir::E) | (Dir::W, Dir::N) => '╮',
+            | (Dir::S, Dir::W) | (Dir::E, Dir::N) => '╭',
             | (Dir::W, Dir::W) | (Dir::E, Dir::E) => '─',
             | (Dir::N, Dir::N) | (Dir::S, Dir::S) => '│',
             | _                                   => panic!("Illegal game state"),
@@ -178,7 +180,7 @@ impl Snake {
         if let Some(Fruit::Growth) = fruit {} else { segments.pop(); }
 
         // Self collision check
-        if segments.iter().any(|segment| segment.pos == (x, y)) {
+        if self.contains((x, y)) {
             return Err(Ending::SelfCollision)
         }
 
@@ -188,10 +190,16 @@ impl Snake {
         // Fruit check
         Ok(fruits.remove(&(x, y)))
     }
+
+    fn contains(&self, (x, y): Pos) -> bool {
+        let Snake(segments) = self;
+        segments.iter().any(|segment| segment.pos == (x, y))
+    }
 }
 
 fn main() {
 
+    let mut rng = rand::thread_rng();
     let stdout = stdout();
     let mut stdin = async_stdin().keys();
     let mut stdout = stdout.lock()
@@ -206,7 +214,7 @@ fn main() {
         snake: Snake::new(x, y),
         dir: Dir::N,
         fruits: HashMap::default(),
-        delay: Duration::from_millis(50),
+        delay: Duration::from_millis(100),
         points: 0,
     };
 
@@ -230,6 +238,25 @@ fn main() {
             | Key::Char('q') | Key::Esc   => break Ending::Quit,
             | _                           => (),
             };
+        }
+
+        // Randomly spawn fruits
+        if rng.gen_range(0, 10 * (game.fruits.len() + 1)) == 0 {
+            let fruit = match rng.gen_range(0, 10) {
+            | 0 => Fruit::Death,
+            | 2 => Fruit::Speed,
+            | 3 => Fruit::Slow,
+            | _ => Fruit::Growth,
+            };
+
+            let (max_x, max_y) = game.bounds;
+            let (mut x, mut y) = (rng.gen_range(0, max_x), rng.gen_range(0, max_y));
+            while game.snake.contains((x, y)) {
+                x = rng.gen_range(0, max_x);
+                y = rng.gen_range(0, max_y);
+            }
+
+            game.fruits.insert((x, y), fruit);
         }
 
         // Move the snake!
