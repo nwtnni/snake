@@ -4,11 +4,13 @@ use std::fmt;
 use std::collections::HashMap;
 use std::io::{Write, stdout, stdin};
 use std::time::{Instant, Duration};
+use std::thread;
 
 use termion::{color, cursor, clear};
 use termion::event::Key;
 use termion::input::TermRead;
 use termion::raw::IntoRawMode;
+use termion::{AsyncReader, async_stdin};
 
 #[derive(Copy, Clone)]
 enum Dir {
@@ -25,10 +27,7 @@ struct Segment {
     pos: Pos,
 }
 
-struct Snake {
-    bounds: Pos,
-    body: Vec<Segment>,
-}
+struct Snake(Vec<Segment>);
 
 #[derive(Copy, Clone)]
 enum Fruit {
@@ -45,11 +44,20 @@ enum GameError {
 }
 
 struct Game {
-    bounds: Pos, 
-    previous: Instant, 
-    delay: Duration,
+    /// Terminal size
+    bounds: Pos,
+
+    /// Snake location
     snake: Snake,
+
+    /// Fruits on the board
     fruits: HashMap<Pos, Fruit>,
+
+    /// Previous frame instant
+    previous: Instant,
+
+    /// Delay between frames
+    delay: Duration,
 }
 
 impl fmt::Display for Fruit {
@@ -60,7 +68,7 @@ impl fmt::Display for Fruit {
         | Fruit::Speed  => ('🍒', &color::LightRed as &color::Color),
         | Fruit::Slow   => ('🍍', &color::Blue     as &color::Color),
         };
-        
+
         write!(
             fmt,
             "{color}{display}{reset}",
@@ -73,7 +81,7 @@ impl fmt::Display for Fruit {
 
 impl fmt::Display for Snake {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        let segments = &self.body;
+        let Snake(segments) = self;
         let first = segments.first().unwrap();
         let (x, y) = first.pos;
 
@@ -117,9 +125,8 @@ impl fmt::Display for Snake {
 }
 
 impl Snake {
-    fn step(&mut self, fruits: &mut HashMap<(i32, i32), Fruit>, dir: Dir) -> Result<Option<Fruit>, GameError> {
-        let (max_x, max_y) = self.bounds;
-        let (x, y) = self.body.first().unwrap().pos;
+    fn step(&mut self, fruits: &mut HashMap<(i32, i32), Fruit>, (max_x, max_y): Pos, dir: Dir) -> Result<Option<Fruit>, GameError> {
+        let (x, y) = self.0.first().unwrap().pos;
         let (x, y) = match dir {
         | Dir::N => (x    , y - 1),
         | Dir::S => (x    , y + 1),
@@ -132,7 +139,7 @@ impl Snake {
             return Err(GameError::OutOfBounds)
         }
 
-        let segments = &mut self.body;
+        let Snake(segments) = self;
         let fruit = fruits.get(&(x, y)).cloned();
 
         if let Some(Fruit::Growth) = fruit {} else { segments.pop(); }
@@ -155,14 +162,33 @@ impl Snake {
 }
 
 fn main() {
-    
-    let stdin = stdin();
+
     let stdout = stdout();
-    let mut handle = stdout.lock()
+    let mut stdin = async_stdin().keys();
+    let mut stdout = stdout.lock()
         .into_raw_mode()
         .unwrap();
-    
-    
+
+    let test = Duration::new(1, 0);
+
+    loop {
+
+        let mut event = stdin.next();
+
+        while let Some(next) = stdin.next() {
+            event = Some(next);
+        }
+
+        write!(stdout, "{:?}", event);
 
 
+        if let Some(event) = event {
+            match event.unwrap() {
+            Key::Char('q') => break,
+            _              => (),
+            };
+        };
+        stdout.flush().unwrap();
+        thread::sleep(test);
+    }
 }
