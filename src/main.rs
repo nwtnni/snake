@@ -37,10 +37,12 @@ enum Fruit {
     Slow,
 }
 
-enum GameError {
+enum Ending {
     OutOfBounds,
     SelfCollision,
     FruitDeath,
+    Victory,
+    Quit,
 }
 
 struct Game {
@@ -50,14 +52,17 @@ struct Game {
     /// Snake location
     snake: Snake,
 
+    /// Current direction
+    dir: Dir,
+
     /// Fruits on the board
     fruits: HashMap<Pos, Fruit>,
 
-    /// Previous frame instant
-    previous: Instant,
-
     /// Delay between frames
     delay: Duration,
+
+    /// Points accrued
+    points: i32,
 }
 
 impl fmt::Display for Fruit {
@@ -125,7 +130,16 @@ impl fmt::Display for Snake {
 }
 
 impl Snake {
-    fn step(&mut self, fruits: &mut HashMap<(i32, i32), Fruit>, (max_x, max_y): Pos, dir: Dir) -> Result<Option<Fruit>, GameError> {
+    fn new(max_x: u16, max_y: u16) -> Self {
+        Snake(vec![
+            Segment {
+                dir: Dir::N,
+                pos: (max_x as i32/ 2, max_y as i32/ 2),
+            }
+        ])
+    }
+
+    fn step(&mut self, fruits: &mut HashMap<(i32, i32), Fruit>, (max_x, max_y): Pos, dir: Dir) -> Result<Option<Fruit>, Ending> {
         let (x, y) = self.0.first().unwrap().pos;
         let (x, y) = match dir {
         | Dir::N => (x    , y - 1),
@@ -136,7 +150,7 @@ impl Snake {
 
         // Bounds check
         if x < 0 || y < 0 || x > max_x || y > max_y {
-            return Err(GameError::OutOfBounds)
+            return Err(Ending::OutOfBounds)
         }
 
         let Snake(segments) = self;
@@ -146,18 +160,14 @@ impl Snake {
 
         // Self collision check
         if segments.iter().any(|segment| segment.pos == (x, y)) {
-            return Err(GameError::SelfCollision)
+            return Err(Ending::SelfCollision)
         }
 
         // Update body with new segment
         segments.insert(0, Segment { dir, pos: (x, y) });
 
         // Fruit check
-        match fruit {
-        | Some(Fruit::Death) => Err(GameError::FruitDeath),
-        | None               => Ok(None),
-        | _                  => Ok(fruits.remove(&(x, y)))
-        }
+        Ok(fruits.remove(&(x, y)))
     }
 }
 
@@ -169,26 +179,46 @@ fn main() {
         .into_raw_mode()
         .unwrap();
 
-    let test = Duration::new(1, 0);
+    let (x, y) = termion::terminal_size().unwrap();
 
-    loop {
+    let mut game = Game {
+        bounds: (x as i32, y as i32),
+        snake: Snake::new(x, y), 
+        dir: Dir::N,
+        fruits: HashMap::default(),
+        delay: Duration::from_millis(250),         
+        points: 0,
+    };
 
-        let mut event = stdin.next();
+    let ending = loop {
 
-        while let Some(next) = stdin.next() {
-            event = Some(next);
+        thread::sleep(game.delay);
+        let maybe = stdin.next();
+        if let None = maybe { continue }
+
+        // Drain event queue completely
+        let mut event = maybe.unwrap(); 
+        while let Some(next) = stdin.next() { event = next; }
+
+        match event.unwrap() {
+        | Key::Char('w') | Key::Up    => game.dir = Dir::N,
+        | Key::Char('a') | Key::Left  => game.dir = Dir::W,
+        | Key::Char('s') | Key::Down  => game.dir = Dir::S,
+        | Key::Char('d') | Key::Right => game.dir = Dir::E,
+        | Key::Char('q') | Key::Esc   => break Ending::Quit,
+        | _                           => (),
+        };
+
+        match game.snake.step(&mut game.fruits, game.bounds, game.dir) {
+        | Err(err)                => break err,
+        | Ok(Some(Fruit::Death))  => break Ending::FruitDeath,
+        | Ok(Some(Fruit::Growth)) => game.points += 10,
+        | Ok(Some(Fruit::Speed))  => game.delay  /= 2,
+        | Ok(Some(Fruit::Slow))   => game.delay  *= 2,
+        | Ok(None)                => (),
         }
 
-        write!(stdout, "{:?}", event);
-
-
-        if let Some(event) = event {
-            match event.unwrap() {
-            Key::Char('q') => break,
-            _              => (),
-            };
-        };
+        write!(stdout, "{}", game);
         stdout.flush().unwrap();
-        thread::sleep(test);
-    }
+    };
 }
