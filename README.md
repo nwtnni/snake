@@ -78,6 +78,7 @@ Possible solutions:
 This was mostly done in a few hours as a proof of concept, to familiarize myself with some library features.
 I don't expect to revisit this code anytime soon, but maybe one day it would be neat to implement:
 
+- AI
 - Proper win and loss messages
 - More drops
 - Leaderboard
