@@ -44,7 +44,6 @@ enum Ending {
     OutOfBounds,
     SelfCollision,
     FruitDeath,
-    Victory,
     Quit,
 }
 
@@ -87,69 +86,6 @@ impl fmt::Display for Fruit {
     }
 }
 
-impl fmt::Display for Snake {
-    fn fmt(&self, fmt: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        let Snake(segments) = self;
-        let first = segments.first().unwrap();
-        let (x, y) = first.pos;
-
-        let display = match first.dir {
-        | Dir::N | Dir::S => '│',
-        | Dir::E | Dir::W => '─',
-        };
-
-        write!(
-            fmt,
-            "{goto}{color}{display}",
-            goto = cursor::Goto(x as u16, y as u16),
-            color = color::Fg(color::White),
-            display = display,
-        );
-
-        for pair in segments.windows(2) {
-            let (head, tail) = (&pair[0], &pair[1]);
-            let (x, y) = tail.pos;
-
-            let display = match (head.dir, tail.dir) {
-            | (Dir::N, Dir::E) | (Dir::W, Dir::S) => '╯',
-            | (Dir::N, Dir::W) | (Dir::E, Dir::S) => '╰',
-            | (Dir::S, Dir::E) | (Dir::W, Dir::N) => '╮',
-            | (Dir::S, Dir::W) | (Dir::E, Dir::N) => '╭',
-            | (Dir::W, Dir::W) | (Dir::E, Dir::E) => '─',
-            | (Dir::N, Dir::N) | (Dir::S, Dir::S) => '│',
-            | _                                   => panic!("Illegal game state"),
-            };
-
-            write!(
-                fmt,
-                "{goto}{display}",
-                goto = cursor::Goto(x as u16, y as u16),
-                display = display,
-            );
-        }
-
-        write!(fmt, "{}", color::Fg(color::Reset))
-    }
-}
-
-impl fmt::Display for Game {
-    fn fmt(&self, fmt: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-
-        write!(fmt, "{}", clear::All);
-
-        for ((x, y), fruit) in &self.fruits {
-            write!(
-                fmt,
-                "{goto}{fruit}",
-                goto = cursor::Goto(*x as u16, *y as u16),
-                fruit = fruit,
-            );
-        }
-
-        write!(fmt, "{}", self.snake)
-    }
-}
-
 impl Snake {
     fn new(max_x: u16, max_y: u16) -> Self {
         Snake(vec![
@@ -160,8 +96,20 @@ impl Snake {
         ])
     }
 
-    fn step(&mut self, fruits: &mut HashMap<(i32, i32), Fruit>, (max_x, max_y): Pos, dir: Dir) -> Result<Option<Fruit>, Ending> {
-        let (x, y) = self.0.first().unwrap().pos;
+    fn step(&mut self, fruits: &mut HashMap<(i32, i32), Fruit>, (max_x, max_y): Pos, dir: Dir, stdout: &mut Write) -> Result<Option<Fruit>, Ending> {
+        let head = self.0.first().unwrap();
+
+        // Prevent 180 degree turns
+        let dir = match (head.dir, dir) {
+        | (Dir::N, Dir::S) => Dir::N,
+        | (Dir::S, Dir::N) => Dir::S,
+        | (Dir::W, Dir::E) => Dir::W,
+        | (Dir::E, Dir::W) => Dir::E,
+        | _                => dir,
+        };
+
+        // Calculate new head position
+        let (x, y) = head.pos;
         let (x, y) = match dir {
         | Dir::N => (x    , y - 1),
         | Dir::S => (x    , y + 1),
@@ -170,22 +118,63 @@ impl Snake {
         };
 
         // Bounds check
-        if x < 0 || y < 0 || x > max_x || y > max_y {
-            return Err(Ending::OutOfBounds)
-        }
+        if x < 0 || y < 0 || x > max_x || y > max_y { return Err(Ending::OutOfBounds) }
 
         let Snake(segments) = self;
         let fruit = fruits.get(&(x, y)).cloned();
 
-        if let Some(Fruit::Growth) = fruit {} else { segments.pop(); }
+        // Check for growth, otherwise erase tail
+        if let Some(Fruit::Growth) = fruit {} else {
+            if let Some(tail) = segments.pop() {
+                let (x, y) = tail.pos;
+                write!(stdout, "{} ", cursor::Goto(x as u16, y as u16));
+            }
+        }
 
         // Self collision check
-        if self.contains((x, y)) {
-            return Err(Ending::SelfCollision)
-        }
+        if self.contains((x, y)) { return Err(Ending::SelfCollision) }
 
         // Update body with new segment
         segments.insert(0, Segment { dir, pos: (x, y) });
+
+        // Draw appropriate bridging piece
+        if segments.len() > 1 {
+            let tail = &segments[1];
+            let (x, y) = tail.pos;
+            let update = match (dir, tail.dir) {
+            | (Dir::N, Dir::E) | (Dir::W, Dir::S) => '╯',
+            | (Dir::N, Dir::W) | (Dir::E, Dir::S) => '╰',
+            | (Dir::S, Dir::E) | (Dir::W, Dir::N) => '╮',
+            | (Dir::S, Dir::W) | (Dir::E, Dir::N) => '╭',
+            | (Dir::W, Dir::W) | (Dir::E, Dir::E) => '─',
+            | (Dir::N, Dir::N) | (Dir::S, Dir::S) => '│',
+            | _                                   => panic!("Illegal game state"),
+            };
+
+            write!(
+                stdout,
+                "{goto}{color}{display}{reset}",
+                goto = cursor::Goto(x as u16, y as u16),
+                color = color::Fg(color::White),
+                display = update,
+                reset = color::Fg(color::Reset),
+            );
+        }
+
+        // Draw new head
+        let display = match dir {
+        | Dir::N | Dir::S => '│',
+        | Dir::E | Dir::W => '─',
+        };
+
+        write!(
+            stdout,
+            "{goto}{color}{display}{reset}",
+            goto = cursor::Goto(x as u16, y as u16),
+            color = color::Fg(color::White),
+            display = display,
+            reset = color::Fg(color::Reset),
+        );
 
         // Fruit check
         Ok(fruits.remove(&(x, y)))
@@ -207,14 +196,14 @@ fn main() {
         .unwrap();
 
     let (x, y) = termion::terminal_size().unwrap();
-    write!(stdout, "{}", cursor::Hide);
+    write!(stdout, "{}{}", clear::All, cursor::Hide);
 
     let mut game = Game {
         bounds: (x as i32, y as i32),
         snake: Snake::new(x, y),
         dir: Dir::N,
         fruits: HashMap::default(),
-        delay: Duration::from_millis(100),
+        delay: Duration::from_millis(50),
         points: 0,
     };
 
@@ -244,8 +233,8 @@ fn main() {
         if rng.gen_range(0, 10 * (game.fruits.len() + 1)) == 0 {
             let fruit = match rng.gen_range(0, 10) {
             | 0 => Fruit::Death,
-            | 2 => Fruit::Speed,
-            | 3 => Fruit::Slow,
+            | 1 => Fruit::Speed,
+            | 2 => Fruit::Slow,
             | _ => Fruit::Growth,
             };
 
@@ -257,19 +246,19 @@ fn main() {
             }
 
             game.fruits.insert((x, y), fruit);
+            write!(stdout, "{}{}", cursor::Goto(x as u16, y as u16), fruit);
         }
 
         // Move the snake!
-        match game.snake.step(&mut game.fruits, game.bounds, game.dir) {
+        match game.snake.step(&mut game.fruits, game.bounds, game.dir, &mut stdout) {
         | Err(err)                => break err,
         | Ok(Some(Fruit::Death))  => break Ending::FruitDeath,
         | Ok(Some(Fruit::Growth)) => game.points += 10,
-        | Ok(Some(Fruit::Speed))  => game.delay  /= 2,
-        | Ok(Some(Fruit::Slow))   => game.delay  *= 2,
+        | Ok(Some(Fruit::Speed))  => game.delay  -= Duration::from_millis(10),
+        | Ok(Some(Fruit::Slow))   => game.delay  += Duration::from_millis(10),
         | Ok(None)                => (),
         }
 
-        write!(stdout, "{}", game);
         stdout.flush().unwrap();
     };
 
