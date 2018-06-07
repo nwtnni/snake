@@ -127,7 +127,7 @@ impl Snake {
         if let Some(Fruit::Growth) = fruit {} else {
             if let Some(tail) = segments.pop() {
                 let (x, y) = tail.pos;
-                write!(stdout, "{} ", cursor::Goto(x as u16, y as u16));
+                write!(stdout, "{} ", cursor::Goto(x as u16, y as u16)).unwrap();
             }
         }
 
@@ -158,7 +158,7 @@ impl Snake {
                 color = color::Fg(color::White),
                 display = update,
                 reset = color::Fg(color::Reset),
-            );
+            ).unwrap();
         }
 
         // Draw new head
@@ -174,7 +174,7 @@ impl Snake {
             color = color::Fg(color::White),
             display = display,
             reset = color::Fg(color::Reset),
-        );
+        ).unwrap();
 
         // Fruit check
         Ok(fruits.remove(&(x, y)))
@@ -196,7 +196,7 @@ fn main() {
         .unwrap();
 
     let (x, y) = termion::terminal_size().unwrap();
-    write!(stdout, "{}{}", clear::All, cursor::Hide);
+    write!(stdout, "{}{}", clear::All, cursor::Hide).unwrap();
 
     let mut game = Game {
         bounds: (x as i32, y as i32),
@@ -246,7 +246,7 @@ fn main() {
             }
 
             game.fruits.insert((x, y), fruit);
-            write!(stdout, "{}{}", cursor::Goto(x as u16, y as u16), fruit);
+            write!(stdout, "{}{}", cursor::Goto(x as u16, y as u16), fruit).unwrap();
         }
 
         // Move the snake!
@@ -262,6 +262,6 @@ fn main() {
         stdout.flush().unwrap();
     };
 
-    write!(stdout, "{}{}{}", cursor::Goto(1, 1), clear::All, cursor::Show);
+    write!(stdout, "{}{}{}", cursor::Goto(1, 1), clear::All, cursor::Show).unwrap();
     println!("{:?}\r", ending);
 }
